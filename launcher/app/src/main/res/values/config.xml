@@ -2,6 +2,7 @@
 <!--
   Launcher configuration. Edit this file, then run launcher/build-and-install.sh.
   Package names: on the TV run `pm list packages` (tools/tv.py 'pm list packages').
+  Dock/grid order and user hides are also editable on the TV (Menu / hold OK on a tile).
 -->
 <resources>
 
@@ -13,19 +14,31 @@
         <item>com.amazon.tv.settings.v2</item>
     </string-array>
 
-    <!-- Apps never shown as tiles (e.g. the Live TV app, which the Inputs menu already covers). -->
+    <!-- Apps never shown as tiles. User can also hide more from the TV (Menu → Hide from Home). -->
     <string-array name="hidden_apps">
+        <item>com.amazon.tv.launcher</item>
         <item>com.amazon.tv.livetv</item>
-        <item>com.mediatek.opapp</item>      <!-- 16 European satellite-provider shortcuts -->
-        <item>com.amazon.smarthomemapviewapp</item>  <!-- Alexa Smart Home -->
-        <item>com.amazon.spiderpork</item>   <!-- Luna -->
+        <item>com.mediatek.opapp</item>
+        <item>com.amazon.smarthomemapviewapp</item>
+        <item>com.amazon.spiderpork</item>
         <item>com.amazon.bueller.music</item>
-        <item>com.amazon.cloud9</item>        <!-- Silk browser -->
+        <item>com.amazon.bueller.photos</item>
+        <item>com.amazon.cloud9</item>
+        <item>com.amazon.hedwig</item>
+        <item>com.amazon.tahoe</item>
+        <item>com.amazon.ssm</item>
+        <item>com.amazon.ftv.profilepicker</item>
+        <item>com.amazon.ftv.screensaver</item>
+        <item>com.amazon.tv.csapp</item>
+        <item>com.amazon.tv.support</item>
+        <item>com.amazon.tv.releasenotes</item>
+        <item>com.amazon.tv.notificationcenter</item>
+        <item>com.amazon.ceviche</item>
+        <item>com.amazon.imdb.tv.android.app</item>
     </string-array>
 
-    <!-- The TV's Live TV / tuner app, offered at the end of the Inputs menu. Leave empty to omit. -->
     <string name="live_tv_package" translatable="false">com.amazon.tv.livetv</string>
 
     <!-- Tiles per row in the grid, and the most apps the dock can hold. -->
-    <integer name="columns">5</integer>
+    <integer name="columns">6</integer>
 </resources>

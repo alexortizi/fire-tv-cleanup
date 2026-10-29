@@ -504,7 +504,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (adapter.pin(pkg)) focusAfterLayout(pkg);
                 else Toast.makeText(this, R.string.dock_full, Toast.LENGTH_SHORT).show();
             });
+            int gi = adapter.gridIndex(pkg);
+            int gsize = adapter.gridSize();
+            int cols = adapter.columns();
+            if (gi > 0) addInputRow(rows, popup, R.drawable.ic_left, getString(R.string.move_left), -1, () -> {
+                adapter.moveGrid(pkg, -1);
+                focusAfterLayout(pkg);
+            });
+            if (gi >= 0 && gi < gsize - 1) addInputRow(rows, popup, R.drawable.ic_right, getString(R.string.move_right), -1, () -> {
+                adapter.moveGrid(pkg, 1);
+                focusAfterLayout(pkg);
+            });
+            if (gi >= cols) addInputRow(rows, popup, R.drawable.ic_up, getString(R.string.move_up), -1, () -> {
+                adapter.moveGrid(pkg, -cols);
+                focusAfterLayout(pkg);
+            });
+            if (gi >= 0 && gi + cols < gsize) addInputRow(rows, popup, R.drawable.ic_down, getString(R.string.move_down), -1, () -> {
+                adapter.moveGrid(pkg, cols);
+                focusAfterLayout(pkg);
+            });
         }
+        addInputRow(rows, popup, R.drawable.ic_hide, getString(R.string.hide_app), -1, () -> {
+            adapter.hideApp(pkg);
+            focusTile(Math.min(position, Math.max(0, adapter.getItemCount() - 1)));
+        });
         addInputRow(rows, popup, R.drawable.ic_info, getString(R.string.app_info), -1, () ->
                 open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg))));
 
@@ -543,8 +566,36 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 Toast.makeText(this, R.string.redirect_needs_permission, Toast.LENGTH_LONG).show();
             }
         });
+        addInputRow(rows, popup, R.drawable.ic_hide, getString(R.string.show_hidden_apps), -1, () ->
+                showHiddenAppsMenu(anchor));
         popup.showAsDropDown(anchor, anchor.getWidth() - width, (int) (10 * density), Gravity.START);
         rows.getChildAt(0).requestFocus();
+    }
+
+    /** Menu → Settings button → Show Hidden Apps: unhide user-hidden packages. */
+    private void showHiddenAppsMenu(View anchor) {
+        List<String> hiddenPkgs = adapter.userHiddenPackages();
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        int width = (int) (300 * density);
+        final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setAnimationStyle(0);
+        popup.setElevation(0f);
+        if (hiddenPkgs.isEmpty()) {
+            addInputRow(rows, popup, R.drawable.ic_info, getString(R.string.no_hidden_apps), -1, () -> {});
+        } else {
+            for (String pkg : hiddenPkgs) {
+                String label = adapter.labelForPackage(pkg);
+                addInputRow(rows, popup, R.drawable.ic_pin, label + " — " + getString(R.string.unhide_app), -1, () -> {
+                    adapter.unhideApp(pkg);
+                    focusAfterLayout(pkg);
+                });
+            }
+        }
+        popup.showAsDropDown(anchor, anchor.getWidth() - width, (int) (10 * density), Gravity.START);
+        if (rows.getChildCount() > 0) rows.getChildAt(0).requestFocus();
     }
 
     /** After the dock changes, focus the app's new tile once the grid has re-laid out. */

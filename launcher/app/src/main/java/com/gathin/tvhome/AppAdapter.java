@@ -37,8 +37,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * App tiles. The first {@link #dockCount()} positions are the pinned dock, in the order the user set; the rest
- * is alphabetical. The pinned list is saved on the device and starts from res/values/config.xml (dock_apps).
+ * App tiles. The first {@link #dockCount()} positions are the pinned dock; the rest is the grid.
+ * Dock order, grid order and per-app hides are saved on the device (SharedPreferences).
  */
 public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
@@ -64,14 +64,26 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         DOCK_ICONS.put("com.amazon.venezia", "dock_appstore");
         DOCK_ICONS.put("com.goodtoolapps.zeus", "dock_zeus");
         DOCK_ICONS.put("com.amazon.tv.settings.v2", "dock_settings");
+        DOCK_ICONS.put("tv.twitch.android.viewer", "dock_twitch");
+        DOCK_ICONS.put("com.kick.mobile", "dock_kick");
+        DOCK_ICONS.put("org.videolan.vlc", "dock_vlc");
+        DOCK_ICONS.put("com.dazn", "dock_dazn");
     }
 
-    /** Bump when config.xml dock_apps changes so device prefs pick up the new order. */
-    private static final int DOCK_REV = 3;
+    /** Bump when config.xml dock_apps / hidden_apps defaults change so device prefs refresh. */
+    private static final int DOCK_REV = 7;
     private static final String PREF_DOCK_REV = "dock_rev";
 
     // Fire TV Settings has no LEANBACK/LAUNCHER activity; the stock home opens it via ACTION_SETTINGS.
     private static final String SETTINGS_PKG = "com.amazon.tv.settings.v2";
+
+    /** LAUNCHER-only Amazon packages we still want (everything else Amazon without leanback is junk). */
+    private static final Set<String> KEEP_AMAZON_LAUNCHER = new HashSet<>(Arrays.asList(
+            "com.amazon.venezia",
+            "com.amazon.firetv.youtube",
+            "com.amazon.firebat",
+            SETTINGS_PKG
+    ));
 
     static final class Entry {
         final String label;
@@ -106,18 +118,25 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     private final TileListener listener;
     private static final String PREFS = "tvhome";
     private static final String PREF_DOCK = "dock";
+    private static final String PREF_GRID = "grid";
+    private static final String PREF_USER_HIDDEN = "user_hidden";
     private final int maxDock;
+    private final int columns;
     private int dockCount;
     /** Pinned packages in dock order, including any that are not installed right now. */
     private final List<String> pinned = new ArrayList<>();
-    /** Never shown as tiles (res/values/config.xml, hidden_apps). */
-    private final Set<String> hidden;
+    /** User order for the grid (below the dock). Missing pkgs fall back to A–Z. */
+    private final List<String> gridOrder = new ArrayList<>();
+    /** Never shown as tiles (config.xml + user hides). */
+    private final Set<String> hidden = new HashSet<>();
+    private final Set<String> userHidden = new HashSet<>();
     private final List<Entry> items = new ArrayList<>();
 
     AppAdapter(Context ctx, TileListener listener, int maxDock) {
         this.ctx = ctx;
         this.listener = listener;
         this.maxDock = maxDock;
+        this.columns = Math.max(1, maxDock);
         android.content.SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         int rev = prefs.getInt(PREF_DOCK_REV, 0);
         String saved = prefs.getString(PREF_DOCK, null);
@@ -130,23 +149,39 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         } else {
             pinned.addAll(saved.isEmpty() ? Collections.emptyList() : Arrays.asList(saved.split(",")));
         }
-        this.hidden = new HashSet<>(Arrays.asList(ctx.getResources().getStringArray(R.array.hidden_apps)));
+        String gridSaved = prefs.getString(PREF_GRID, "");
+        if (gridSaved != null && !gridSaved.isEmpty()) {
+            gridOrder.addAll(Arrays.asList(gridSaved.split(",")));
+        }
+        String uh = prefs.getString(PREF_USER_HIDDEN, "");
+        if (uh != null && !uh.isEmpty()) userHidden.addAll(Arrays.asList(uh.split(",")));
+        hidden.addAll(Arrays.asList(ctx.getResources().getStringArray(R.array.hidden_apps)));
+        hidden.addAll(userHidden);
     }
 
     void reload() {
         PackageManager pm = ctx.getPackageManager();
-        // Fire TV Appstore/Silk only advertise LAUNCHER; leanback apps advertise LEANBACK_LAUNCHER.
-        List<ResolveInfo> found = new ArrayList<>();
-        found.addAll(pm.queryIntentActivities(
-                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0));
-        found.addAll(pm.queryIntentActivities(
-                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
+        // Fire TV Appstore advertises LAUNCHER; leanback apps advertise LEANBACK_LAUNCHER.
+        List<ResolveInfo> leanback = pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0);
+        List<ResolveInfo> launcher = pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0);
+        Set<String> leanbackPkgs = new HashSet<>();
+        for (ResolveInfo ri : leanback) {
+            if (ri.activityInfo != null) leanbackPkgs.add(ri.activityInfo.packageName);
+        }
+        List<ResolveInfo> found = new ArrayList<>(leanback);
+        found.addAll(launcher);
         List<Entry> fresh = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (ResolveInfo ri : found) {
             if (ri.activityInfo == null) continue;
             String pkg = ri.activityInfo.packageName;
             if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg)) continue;
+            if (!isEnabled(pm, pkg)) continue;
+            boolean isLeanback = leanbackPkgs.contains(pkg);
+            // LAUNCHER-only Amazon stubs (Photos, News, Kids, Amazon Home, …) — skip unless allowlisted.
+            if (!isLeanback && isAmazonJunkLauncher(pkg)) continue;
             // One tile per app: prefer the package's primary leanback entry when it exists.
             Intent main = pm.getLeanbackLaunchIntentForPackage(pkg);
             if (main == null) main = pm.getLaunchIntentForPackage(pkg);
@@ -161,15 +196,24 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             fresh.add(new Entry(label, new ComponentName(pkg, ri.activityInfo.name),
                     square != 0 ? ctx.getDrawable(square) : null, icon));
         }
-        if (pinned.contains(SETTINGS_PKG) && seen.add(SETTINGS_PKG) && !hidden.contains(SETTINGS_PKG)) {
+        if (pinned.contains(SETTINGS_PKG) && seen.add(SETTINGS_PKG) && !hidden.contains(SETTINGS_PKG)
+                && isEnabled(pm, SETTINGS_PKG)) {
             fresh.add(settingsEntry(pm));
         }
+        // Keep gridOrder in sync with installed apps (append newcomers alphabetically).
+        syncGridOrder(fresh);
         Collections.sort(fresh, (a, b) -> {
             int fa = pinned.indexOf(a.pkg), fb = pinned.indexOf(b.pkg);
             if (fa >= 0 || fb >= 0) {
                 if (fa < 0) return 1;
                 if (fb < 0) return -1;
                 return Integer.compare(fa, fb);
+            }
+            int ga = gridOrder.indexOf(a.pkg), gb = gridOrder.indexOf(b.pkg);
+            if (ga >= 0 || gb >= 0) {
+                if (ga < 0) return 1;
+                if (gb < 0) return -1;
+                return Integer.compare(ga, gb);
             }
             return a.label.compareToIgnoreCase(b.label);
         });
@@ -179,6 +223,49 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         while (docked < items.size() && pinned.contains(items.get(docked).pkg)) docked++;
         dockCount = Math.min(docked, maxDock);
         notifyDataSetChanged();
+    }
+
+    private static boolean isAmazonJunkLauncher(String pkg) {
+        if (KEEP_AMAZON_LAUNCHER.contains(pkg)) return false;
+        return pkg.startsWith("com.amazon.") || pkg.equals("amazon.fireos");
+    }
+
+    private static boolean isEnabled(PackageManager pm, String pkg) {
+        try {
+            int state = pm.getApplicationEnabledSetting(pkg);
+            if (state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                    || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED) {
+                return false;
+            }
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            return ai.enabled;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    private void syncGridOrder(List<Entry> fresh) {
+        Set<String> present = new HashSet<>();
+        for (Entry e : fresh) {
+            if (!pinned.contains(e.pkg)) present.add(e.pkg);
+        }
+        gridOrder.removeIf(p -> !present.contains(p));
+        List<String> newcomers = new ArrayList<>();
+        for (Entry e : fresh) {
+            if (pinned.contains(e.pkg)) continue;
+            if (!gridOrder.contains(e.pkg)) newcomers.add(e.pkg);
+        }
+        newcomers.sort((a, b) -> {
+            String la = "", lb = "";
+            for (Entry e : fresh) {
+                if (e.pkg.equals(a)) la = e.label;
+                if (e.pkg.equals(b)) lb = e.label;
+            }
+            return la.compareToIgnoreCase(lb);
+        });
+        gridOrder.addAll(newcomers);
+        saveGrid();
     }
 
     private Entry settingsEntry(PackageManager pm) {
@@ -224,12 +311,16 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         if (dockCount >= maxDock) return false;
         pinned.removeIf(p -> positionOf(p) < 0);   // forget uninstalled pins so they don't hold slots
         pinned.add(pkg);
+        gridOrder.remove(pkg);
+        saveGrid();
         saveAndReload();
         return true;
     }
 
     void unpin(String pkg) {
         pinned.remove(pkg);
+        if (!gridOrder.contains(pkg)) gridOrder.add(pkg);
+        saveGrid();
         saveAndReload();
     }
 
@@ -239,6 +330,74 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         if (from < 0 || to < 0 || to >= pinned.size()) return;
         Collections.swap(pinned, from, to);
         saveAndReload();
+    }
+
+    /** Swaps within the grid (below the dock). delta is usually ±1 or ±columns. */
+    void moveGrid(String pkg, int delta) {
+        int from = gridOrder.indexOf(pkg), to = from + delta;
+        if (from < 0 || to < 0 || to >= gridOrder.size()) return;
+        Collections.swap(gridOrder, from, to);
+        saveGrid();
+        reload();
+    }
+
+    int gridIndex(String pkg) {
+        return gridOrder.indexOf(pkg);
+    }
+
+    int gridSize() {
+        return gridOrder.size();
+    }
+
+    int columns() {
+        return columns;
+    }
+
+    /** Hide from home (persisted). Dock pins are removed too. */
+    void hideApp(String pkg) {
+        pinned.remove(pkg);
+        gridOrder.remove(pkg);
+        userHidden.add(pkg);
+        hidden.add(pkg);
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PREF_DOCK, String.join(",", pinned))
+                .putString(PREF_GRID, String.join(",", gridOrder))
+                .putString(PREF_USER_HIDDEN, String.join(",", userHidden))
+                .apply();
+        reload();
+    }
+
+    List<String> userHiddenPackages() {
+        return new ArrayList<>(userHidden);
+    }
+
+    String labelForPackage(String pkg) {
+        for (Entry e : items) if (e.pkg.equals(pkg)) return e.label;
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+        } catch (PackageManager.NameNotFoundException e) {
+            return pkg;
+        }
+    }
+
+    /** Show a previously hidden app again (user hides only — not config.xml defaults). */
+    void unhideApp(String pkg) {
+        if (!userHidden.remove(pkg)) return;
+        hidden.clear();
+        hidden.addAll(Arrays.asList(ctx.getResources().getStringArray(R.array.hidden_apps)));
+        hidden.addAll(userHidden);
+        if (!gridOrder.contains(pkg) && !pinned.contains(pkg)) gridOrder.add(pkg);
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PREF_USER_HIDDEN, String.join(",", userHidden))
+                .putString(PREF_GRID, String.join(",", gridOrder))
+                .apply();
+        reload();
+    }
+
+    private void saveGrid() {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(PREF_GRID, String.join(",", gridOrder)).apply();
     }
 
     private void saveAndReload() {
@@ -266,19 +425,21 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         h.card.setTranslationY(0f);
         h.shadow.setVisibility(View.GONE);
         h.label.setVisibility(View.GONE);
-        // Custom dock art is already full-bleed; system icons get a heavy crop past their padding.
+        // Custom dock art is full-bleed. System icons: FIT_CENTER so logos (Twitch/Kick/…) stay complete.
         Drawable art = e.square != null ? e.square : e.icon;
         if (e.square != null) {
             h.card.setBackground(null);
+            h.banner.setScaleType(ImageView.ScaleType.FIT_XY);
+            h.banner.setPadding(0, 0, 0, 0);
         } else {
             h.card.setBackground(ctx.getDrawable(R.drawable.dock_tile_bg));
+            h.banner.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            int pad = (int) (10 * ctx.getResources().getDisplayMetrics().density);
+            h.banner.setPadding(pad, pad, pad, pad);
         }
         h.banner.setImageDrawable(art);
-        h.banner.setScaleType(ImageView.ScaleType.FIT_XY);
-        float zoom = e.square != null ? 1f : 2.1f;
-        h.banner.setScaleX(zoom);
-        h.banner.setScaleY(zoom);
-        h.banner.setPadding(0, 0, 0, 0);
+        h.banner.setScaleX(1f);
+        h.banner.setScaleY(1f);
         h.banner.setVisibility(View.VISIBLE);
         h.icon.setVisibility(View.GONE);
         h.card.setOnClickListener(v -> launch(e));

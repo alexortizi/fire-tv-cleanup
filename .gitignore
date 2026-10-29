@@ -21,7 +21,11 @@ launcher/app/src/main/res/drawable-nodpi/dock_prime.png
 launcher/app/src/main/res/drawable-nodpi/dock_airplay.png
 launcher/app/src/main/res/drawable-nodpi/dock_flujo.png
 launcher/app/src/main/res/drawable-nodpi/dock_appstore.png
-launcher/app/src/main/res/drawable-nodpi/dock_zeus.png
+launcher/app/src/main/res/drawable-nodpi/dock_twitch.png
+launcher/app/src/main/res/drawable-nodpi/dock_kick.png
+launcher/app/src/main/res/drawable-nodpi/dock_vlc.png
+launcher/app/src/main/res/drawable-nodpi/dock_dazn.png
+# Generic (settings gear, browser globe) may be committed; regenerate with make_dock_icons.py
 tools/assets/
 tools/iconvenv/
 screenshots/

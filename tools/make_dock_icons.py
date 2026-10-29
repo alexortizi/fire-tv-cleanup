@@ -97,26 +97,113 @@ d.arc([0.14 * B, 0.42 * B, 0.86 * B, 0.98 * B], 20, 160, fill=(255, 153, 0, 255)
 d.polygon(P((0.78, 0.74), (0.90, 0.62), (0.86, 0.82)), fill=(255, 153, 0, 255))
 save(img, "dock_appstore.png")
 
-# Zeus: near-black full bleed with a large white bolt
-img = fill((18, 18, 22, 255)); d = ImageDraw.Draw(img)
-d.polygon(P((0.62, 0.08), (0.28, 0.52), (0.46, 0.52), (0.36, 0.92), (0.74, 0.42), (0.54, 0.42)), fill=(245, 245, 250, 255))
+# Zeus browser: dark tile + white globe (reads as a browser, not a bolt)
+img = fill((18, 22, 32, 255)); d = ImageDraw.Draw(img)
+cx, cy, r = B / 2, B / 2, 0.36 * B
+d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(235, 240, 255, 255), width=int(0.045 * B))
+d.ellipse([cx - r * 0.45, cy - r, cx + r * 0.45, cy + r], outline=(235, 240, 255, 255), width=int(0.028 * B))
+d.arc([cx - r, cy - r * 0.55, cx + r, cy + r * 0.55], 0, 360, fill=(235, 240, 255, 255), width=int(0.028 * B))
+d.line([(cx - r, cy), (cx + r, cy)], fill=(235, 240, 255, 255), width=int(0.028 * B))
+# Accent cursor / pointer like a browse affordance
+d.polygon(P((0.68, 0.62), (0.86, 0.72), (0.72, 0.78), (0.70, 0.90)), fill=(80, 180, 255, 255))
 save(img, "dock_zeus.png")
 
-# Settings: tonal gray tile + large bold gear filling most of the tile
+# Twitch / Kick: official marks from tools/assets, centered with ~45% margin (not committed).
+ASSETS = pathlib.Path(__file__).parent / "assets"
+tw_src = ASSETS / "twitch_launcher.png"
+if tw_src.exists():
+	src = Image.open(tw_src).convert("RGBA")
+	mask = Image.new("L", src.size, 0)
+	sp, mp = src.load(), mask.load()
+	for y in range(src.size[1]):
+		for x in range(src.size[0]):
+			r, g, b, a = sp[x, y]
+			if a > 200 and r > 200 and g > 200 and b > 200:
+				mp[x, y] = 255
+	bbox = mask.getbbox()
+	logo = Image.new("RGBA", (bbox[2] - bbox[0], bbox[3] - bbox[1]), (0, 0, 0, 0))
+	logo.paste((255, 255, 255, 255), (0, 0), mask.crop(bbox))
+	target = int(S * 0.55)
+	logo = logo.resize((target, int(logo.height * target / logo.width)), Image.LANCZOS)
+	tile = Image.new("RGBA", (S, S), (145, 70, 255, 255))
+	tile.alpha_composite(logo, ((S - logo.width) // 2, (S - logo.height) // 2))
+	tile.save(OUT / "dock_twitch.png")
+else:
+	print("skip dock_twitch: missing", tw_src)
+
+kick_src = ASSETS / "kick_foreground.webp"
+if kick_src.exists():
+	kick = Image.open(kick_src).convert("RGBA")
+	pix, w, h = kick.load(), kick.size[0], kick.size[1]
+	xs, ys = [], []
+	for y in range(h):
+		for x in range(w):
+			r, g, b, a = pix[x, y]
+			if a > 200 and g > 180 and r < 120:
+				xs.append(x); ys.append(y)
+	if xs:
+		kick = kick.crop((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+	kick.thumbnail((int(S * 0.48), int(S * 0.48)), Image.LANCZOS)
+	logo = Image.new("RGBA", kick.size, (0, 0, 0, 0))
+	lp, kp = logo.load(), kick.load()
+	for y in range(kick.size[1]):
+		for x in range(kick.size[0]):
+			r, g, b, a = kp[x, y]
+			if a > 100 and g > 80:
+				lp[x, y] = (83, 252, 24, 255)
+	tile = Image.new("RGBA", (S, S), (0, 0, 0, 255))
+	tile.alpha_composite(logo, ((S - logo.width) // 2, (S - logo.height) // 2))
+	tile.save(OUT / "dock_kick.png")
+else:
+	print("skip dock_kick: missing", kick_src)
+
+# Settings: tonal gray tile + smaller gear (was oversized on the dock)
 import math
 img = fill((72, 72, 80, 255))
 cx, cy = B / 2, B / 2
 ring = Image.new("L", (B, B), 0); rd = ImageDraw.Draw(ring)
-outer, inner, hub = 0.42 * B, 0.28 * B, 0.12 * B
+outer, inner, hub = 0.24 * B, 0.15 * B, 0.07 * B
 rd.ellipse([cx - outer, cy - outer, cx + outer, cy + outer], fill=255)
 rd.ellipse([cx - inner, cy - inner, cx + inner, cy + inner], fill=0)
 for i in range(8):
     a = i * math.pi / 4
-    rd.line([(cx + math.cos(a) * inner * 0.55, cy + math.sin(a) * inner * 0.55),
-             (cx + math.cos(a) * 0.52 * B, cy + math.sin(a) * 0.52 * B)], fill=255, width=int(0.16 * B))
+    rd.line([(cx + math.cos(a) * inner * 0.5, cy + math.sin(a) * inner * 0.5),
+             (cx + math.cos(a) * 0.32 * B, cy + math.sin(a) * 0.32 * B)], fill=255, width=int(0.10 * B))
 rd.ellipse([cx - hub, cy - hub, cx + hub, cy + hub], fill=0)
 img.paste(Image.new("RGBA", (B, B), (240, 240, 245, 255)), (0, 0), ring)
 save(img, "dock_settings.png")
+
+# VLC: full orange bleed + white cone
+ORANGE = (255, 128, 0, 255)
+img = fill(ORANGE); d = ImageDraw.Draw(img)
+d.polygon([(0.34 * B, 0.12 * B), (0.66 * B, 0.12 * B), (0.84 * B, 0.78 * B), (0.16 * B, 0.78 * B)], fill=(255, 255, 255, 255))
+d.rounded_rectangle([0.10 * B, 0.74 * B, 0.90 * B, 0.90 * B], int(0.05 * B), fill=(255, 255, 255, 255))
+d.polygon([(0.40 * B, 0.28 * B), (0.60 * B, 0.28 * B), (0.64 * B, 0.40 * B), (0.36 * B, 0.40 * B)], fill=ORANGE)
+d.polygon([(0.32 * B, 0.50 * B), (0.68 * B, 0.50 * B), (0.74 * B, 0.64 * B), (0.26 * B, 0.64 * B)], fill=ORANGE)
+save(img, "dock_vlc.png")
+
+# DAZN: crop padding from official icon, nearly full-bleed on navy
+dazn_src = ASSETS / "dazn_launcher.png"
+if dazn_src.exists():
+	dazn = Image.open(dazn_src).convert("RGBA")
+	px, w, h = dazn.load(), dazn.size[0], dazn.size[1]
+	br, bgc, bb, _ = px[2, 2]
+	xs, ys = [], []
+	for y in range(h):
+		for x in range(w):
+			r, g, b, a = px[x, y]
+			if abs(r - br) + abs(g - bgc) + abs(b - bb) > 40:
+				xs.append(x); ys.append(y)
+	pad = 4
+	crop = dazn.crop((max(0, min(xs) - pad), max(0, min(ys) - pad),
+		min(w, max(xs) + 1 + pad), min(h, max(ys) + 1 + pad)))
+	side = int(S * 0.92)
+	crop = crop.resize((side, side), Image.LANCZOS)
+	base = Image.new("RGBA", (S, S), (12, 22, 29, 255))
+	base.alpha_composite(crop, ((S - side) // 2, (S - side) // 2))
+	base.save(OUT / "dock_dazn.png")
+else:
+	print("skip dock_dazn: missing", dazn_src)
 
 # Soft drop shadow drawn behind each dock icon: a wide, diffuse blur of a rounded square slightly larger than
 # the 56dp icon, on a 120dp canvas so the blur fades out before the edges.

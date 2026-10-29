@@ -52,10 +52,11 @@ A small native Android TV home screen (`com.gathin.tvhome`), built for sticks wi
 
 Configure it in [`launcher/app/src/main/res/values/config.xml`](launcher/app/src/main/res/values/config.xml):
 the starting dock, hidden apps, Live TV package and columns. To put your name in the greeting, add
-`tvhome.userName=Alex` to `launcher/local.properties`. Brand dock icons (YouTube, Netflix, etc.)
-are not in the repo — draw them locally with
-[`tools/make_dock_icons.py`](tools/make_dock_icons.py). Apps without one show a cropped system
-icon. Build and install with
+`tvhome.userName=Alex` to `launcher/local.properties`. Brand dock icons (YouTube, Netflix, Twitch, Kick, VLC, DAZN, etc.) are not committed (trademarks).
+Generate them on any machine with [`tools/make_dock_icons.py`](tools/make_dock_icons.py) before
+building — same script works for every TV. Generic tiles (Settings gear, browser globe) are in the
+repo. On the TV you can pin/unpin, reorder dock + grid, and hide/show apps (Menu / hold OK; gear →
+Show Hidden Apps). Build and install with
 
 ```bash
 TV_HOST=192.168.1.50 launcher/build-and-install.sh
