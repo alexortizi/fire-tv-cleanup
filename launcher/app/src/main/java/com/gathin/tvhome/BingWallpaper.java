@@ -1,6 +1,7 @@
 package com.gathin.tvhome;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -15,8 +16,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Fetches Bing's picture of the day once per ~20 hours and caches it on disk.
+ * Fetches Bing's picture of the day (and recent days) and caches it on disk.
  * No continuous polling — only runs when the launcher asks.
+ * Adapted from alexortizi/fire-tv-cleanup.
  */
 final class BingWallpaper {
 
@@ -24,9 +26,16 @@ final class BingWallpaper {
         void onReady(File file);
     }
 
+    interface ResultCallback {
+        void onResult(File file, boolean ok);
+    }
+
     private static final long FRESH_MS = 20L * 60L * 60L * 1000L;
+    private static final int MAX_IDX = 7;
+    private static final String PREFS = "bing_wallpaper";
+    private static final String KEY_IDX = "idx";
     private static final String API =
-            "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=es-ES";
+            "https://www.bing.com/HPImageArchive.aspx?format=js&idx=%d&n=1&mkt=es-ES";
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
@@ -49,17 +58,42 @@ final class BingWallpaper {
             MAIN.post(() -> cb.onReady(f));
         }
         if (isFresh(f)) return;
+        int idx = prefs(app).getInt(KEY_IDX, 0);
         IO.execute(() -> {
             try {
-                if (download(app, f)) MAIN.post(() -> cb.onReady(f));
+                if (download(app, f, idx)) MAIN.post(() -> cb.onReady(f));
             } catch (Exception ignored) {
                 // Keep the previous wallpaper (if any). Offline is fine.
             }
         });
     }
 
-    private static boolean download(Context ctx, File dest) throws Exception {
-        HttpURLConnection api = (HttpURLConnection) new URL(API).openConnection();
+    /**
+     * Force a new download, cycling Bing idx 0..7 so each press can show a different recent photo.
+     */
+    static void refresh(Context ctx, ResultCallback cb) {
+        Context app = ctx.getApplicationContext();
+        File f = file(app);
+        SharedPreferences p = prefs(app);
+        int idx = (p.getInt(KEY_IDX, 0) + 1) % (MAX_IDX + 1);
+        p.edit().putInt(KEY_IDX, idx).apply();
+        IO.execute(() -> {
+            boolean ok = false;
+            try {
+                ok = download(app, f, idx);
+            } catch (Exception ignored) {
+            }
+            boolean success = ok;
+            MAIN.post(() -> cb.onResult(f, success && f.exists() && f.length() > 10_000));
+        });
+    }
+
+    private static SharedPreferences prefs(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static boolean download(Context ctx, File dest, int idx) throws Exception {
+        HttpURLConnection api = (HttpURLConnection) new URL(String.format(API, idx)).openConnection();
         api.setConnectTimeout(8_000);
         api.setReadTimeout(12_000);
         api.setRequestProperty("User-Agent", "TvHome/1.0");
@@ -71,12 +105,10 @@ final class BingWallpaper {
         }
         JSONObject img = new JSONObject(body).getJSONArray("images").getJSONObject(0);
         String path = img.getString("url");
-        if (path.startsWith("http")) {
-            // already absolute
-        } else {
+        if (!path.startsWith("http")) {
             path = "https://www.bing.com" + path;
         }
-        // Prefer a 1920-wide asset when Bing gives a relative OH R url.
+        // Prefer a 1920-wide asset when Bing gives a relative OHR url.
         if (!path.contains("1920x1080") && path.contains("_")) {
             path = path.replaceAll("\\d+x\\d+", "1920x1080");
         }

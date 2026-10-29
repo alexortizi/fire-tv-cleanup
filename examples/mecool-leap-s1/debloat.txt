@@ -1,0 +1,35 @@
+# MECOOL LEAP-S1 (SkyworthDigital / device LAS), Android / Google TV 14 (SDK 34)
+# Brand MECOOL, fingerprint MECOOL/HP4035-Mecool/LAS. ~2 GB RAM, armeabi-v7a.
+# Stock HOME: com.google.android.tvlauncher (setupwraith RecoveryActivity also claims HOME prio 1).
+#
+# Apply:   TV_HOST=<ip> tools/disable.sh examples/mecool-leap-s1/debloat.txt
+# Undo:    TV_HOST=<ip> tools/restore.sh examples/mecool-leap-s1/debloat.txt com.google.android.tvlauncher
+#
+# Kept on purpose: katniss (Assistant), mediashell (Cast), leaps1 OTA packages, Play Store/Services,
+# droidlogic.*, sdt.globalkey / rcupair / deviceinfo / customization / frontpanel.
+# Disable setupwraith and tvlauncher ONLY after the replacement launcher is Home and survived a reboot;
+# they are listed last and commented until then.
+
+# Privacy Sandbox / ads framework
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Vendor test / QA
+com.oem.qa
+com.sdt.producttest
+
+# Google extras / recommendation row
+com.google.android.play.games
+com.google.android.tvrecommendations
+
+# Preloaded junk often unused (comment out to keep)
+com.tcl.browser
+com.analiti.fastest.android
+com.esaba.downloader
+
+# Stock launcher replaced by com.gathin.tvhome (applied after install)
+com.google.android.tvlauncher
+
+# After new Home works (uncomment if RecoveryActivity steals Home; Wi-Fi already CREATOR_USER):
+# com.google.android.tungsten.setupwraith

@@ -201,6 +201,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         View btnInputs = findViewById(R.id.btnInputs);
         View btnSettings = findViewById(R.id.btnSettings);
+        View btnWallpaper = findViewById(R.id.btnWallpaper);
         // HDMI/AV Inputs — real TVs only. Fire Stick reports a fake ARC "passthrough"; hide on Amazon.
         if (!isAmazonDevice() && hasPassthroughInputs()) {
             btnInputs.setOnClickListener(v -> showInputs());
@@ -208,6 +209,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             btnInputs.setVisibility(View.GONE);
         }
         btnWifi.setOnClickListener(v -> open(new Intent(Settings.ACTION_WIFI_SETTINGS)));
+        btnWallpaper.setOnClickListener(v -> refreshBingWallpaper(btnWallpaper));
         // Gear = launcher menu (hidden apps / home switch / system Settings). Long-press = Amazon Settings.
         btnSettings.setOnClickListener(v -> showHomeScreenMenu(v));
         btnSettings.setOnLongClickListener(v -> {
@@ -217,7 +219,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         // Keep focus on the top bar at its ends and at the top: Android's focus finder would otherwise
         // jump to a tile far below when there is nothing in that direction.
-        View leftmost = btnInputs.getVisibility() == View.VISIBLE ? btnInputs : btnWifi;
+        View leftmost = btnInputs.getVisibility() == View.VISIBLE ? btnInputs : btnWallpaper;
         View.OnKeyListener pillKeys = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
@@ -229,6 +231,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == R.id.btnSettings;
         };
         btnInputs.setOnKeyListener(pillKeys);
+        btnWallpaper.setOnKeyListener(pillKeys);
         btnWifi.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
 
@@ -434,6 +437,31 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 bgPhoto.setImageURI(Uri.fromFile(file));
                 bgPhoto.animate().alpha(1f).setDuration(500).start();
             } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** Top-bar picture button: force-fetch the next Bing day (idx 0..7) and apply it. */
+    private void refreshBingWallpaper(View button) {
+        if (button.getTag() == Boolean.TRUE) return;
+        button.setTag(Boolean.TRUE);
+        button.setAlpha(0.45f);
+        BingWallpaper.refresh(this, (file, ok) -> {
+            button.setTag(null);
+            button.setAlpha(1f);
+            if (ok && bgPhoto != null) {
+                try {
+                    bgPhoto.setImageURI(null);
+                    bgPhoto.setImageURI(Uri.fromFile(file));
+                    bgPhoto.setAlpha(0f);
+                    bgPhoto.animate().alpha(1f).setDuration(400).start();
+                } catch (Exception ignored) {
+                }
+                android.widget.Toast.makeText(this, R.string.wallpaper_updated,
+                        android.widget.Toast.LENGTH_SHORT).show();
+            } else {
+                android.widget.Toast.makeText(this, R.string.wallpaper_update_failed,
+                        android.widget.Toast.LENGTH_SHORT).show();
             }
         });
     }

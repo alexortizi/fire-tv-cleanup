@@ -180,6 +180,13 @@
                     android:nextFocusDown="@+id/grid" />
 
                 <TextView
+                    android:id="@+id/btnWallpaper"
+                    style="@style/TopIconButton"
+                    android:contentDescription="@string/refresh_wallpaper"
+                    android:drawableStart="@drawable/ic_wallpaper_refresh"
+                    android:nextFocusDown="@+id/grid" />
+
+                <TextView
                     android:id="@+id/btnWifi"
                     style="@style/TopButton"
                     android:drawableStart="@drawable/ic_wifi"

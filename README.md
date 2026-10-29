@@ -42,7 +42,8 @@ step with screenshots from the TV. If you'd rather do it by hand, the pieces are
 A small native Android TV home screen (`com.gathin.tvhome`), built for sticks with ~1 GB of RAM:
 
 - **Bing picture of the day** as the home background (cached on device, refreshed about every 20
-  hours). Falls back quietly when offline.
+  hours). Falls back quietly when offline. A top-bar picture button (left of Wi-Fi) forces a refresh
+  and cycles recent Bing days.
 - Material-inspired dock: full-bleed tiles, quiet focus label, minimal chrome so the photo stays
   the hero.
 - Pin, unpin and reorder dock apps on the TV: hold OK or press Menu on an app.

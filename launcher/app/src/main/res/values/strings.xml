@@ -3,6 +3,9 @@
     <string name="app_name">Home</string>
     <string name="inputs">Inputs</string>
     <string name="wifi">Wi-Fi</string>
+    <string name="refresh_wallpaper">Actualizar fondo</string>
+    <string name="wallpaper_updated">Fondo actualizado</string>
+    <string name="wallpaper_update_failed">No se pudo actualizar el fondo</string>
     <string name="settings">Settings</string>
     <string name="choose_input">Inputs</string>
     <string name="connected">Connected</string>
