@@ -3,6 +3,7 @@ package com.gathin.tvhome;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
@@ -11,6 +12,7 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -58,7 +60,18 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         DOCK_ICONS.put("com.netflix.ninja", "dock_netflix");
         DOCK_ICONS.put("com.amazon.firebat", "dock_prime");
         DOCK_ICONS.put("com.apple.airplay.amazon.airplay", "dock_airplay");
+        DOCK_ICONS.put("com.android.mgandroid", "dock_flujo");
+        DOCK_ICONS.put("com.amazon.venezia", "dock_appstore");
+        DOCK_ICONS.put("com.goodtoolapps.zeus", "dock_zeus");
+        DOCK_ICONS.put("com.amazon.tv.settings.v2", "dock_settings");
     }
+
+    /** Bump when config.xml dock_apps changes so device prefs pick up the new order. */
+    private static final int DOCK_REV = 3;
+    private static final String PREF_DOCK_REV = "dock_rev";
+
+    // Fire TV Settings has no LEANBACK/LAUNCHER activity; the stock home opens it via ACTION_SETTINGS.
+    private static final String SETTINGS_PKG = "com.amazon.tv.settings.v2";
 
     static final class Entry {
         final String label;
@@ -67,19 +80,27 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         /** Square dock art, or null: then the app's own icon sits on a graphite tile. */
         final Drawable square;
         final Drawable icon;
+        /** When set, launch this intent instead of the component (Fire TV Settings). */
+        final Intent launchIntent;
         int ambient;
 
         Entry(String label, ComponentName component, Drawable square, Drawable icon) {
+            this(label, component, square, icon, null);
+        }
+
+        Entry(String label, ComponentName component, Drawable square, Drawable icon, Intent launchIntent) {
             this.label = label;
             this.component = component;
             this.pkg = component.getPackageName();
             this.square = square;
             this.icon = icon;
+            this.launchIntent = launchIntent;
         }
     }
 
     static final float FOCUS_SCALE = 1.10f;
-    static final float CORNER_RATIO = 0.225f;
+    /** ~20 dp corners on an 88 dp Material media tile. */
+    static final float CORNER_RATIO = 0.23f;
 
     private final Context ctx;
     private final TileListener listener;
@@ -97,25 +118,38 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         this.ctx = ctx;
         this.listener = listener;
         this.maxDock = maxDock;
-        String saved = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PREF_DOCK, null);
-        pinned.addAll(saved != null
-                ? (saved.isEmpty() ? Collections.emptyList() : Arrays.asList(saved.split(",")))
-                : Arrays.asList(ctx.getResources().getStringArray(R.array.dock_apps)));
+        android.content.SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        int rev = prefs.getInt(PREF_DOCK_REV, 0);
+        String saved = prefs.getString(PREF_DOCK, null);
+        if (rev < DOCK_REV || saved == null) {
+            pinned.addAll(Arrays.asList(ctx.getResources().getStringArray(R.array.dock_apps)));
+            prefs.edit()
+                    .putString(PREF_DOCK, String.join(",", pinned))
+                    .putInt(PREF_DOCK_REV, DOCK_REV)
+                    .apply();
+        } else {
+            pinned.addAll(saved.isEmpty() ? Collections.emptyList() : Arrays.asList(saved.split(",")));
+        }
         this.hidden = new HashSet<>(Arrays.asList(ctx.getResources().getStringArray(R.array.hidden_apps)));
     }
 
     void reload() {
         PackageManager pm = ctx.getPackageManager();
-        Intent probe = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
-        List<ResolveInfo> found = pm.queryIntentActivities(probe, 0);
+        // Fire TV Appstore/Silk only advertise LAUNCHER; leanback apps advertise LEANBACK_LAUNCHER.
+        List<ResolveInfo> found = new ArrayList<>();
+        found.addAll(pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0));
+        found.addAll(pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
         List<Entry> fresh = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (ResolveInfo ri : found) {
             if (ri.activityInfo == null) continue;
             String pkg = ri.activityInfo.packageName;
             if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg)) continue;
-            // One tile per app: skip extra launcher entries (AirPlay registers three).
+            // One tile per app: prefer the package's primary leanback entry when it exists.
             Intent main = pm.getLeanbackLaunchIntentForPackage(pkg);
+            if (main == null) main = pm.getLaunchIntentForPackage(pkg);
             ComponentName mainComponent = main != null ? main.getComponent() : null;
             if (mainComponent != null && !mainComponent.getClassName().equals(ri.activityInfo.name)) continue;
             if (!seen.add(pkg)) continue;
@@ -126,6 +160,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                     : ctx.getResources().getIdentifier(squareName, "drawable", ctx.getPackageName());
             fresh.add(new Entry(label, new ComponentName(pkg, ri.activityInfo.name),
                     square != 0 ? ctx.getDrawable(square) : null, icon));
+        }
+        if (pinned.contains(SETTINGS_PKG) && seen.add(SETTINGS_PKG) && !hidden.contains(SETTINGS_PKG)) {
+            fresh.add(settingsEntry(pm));
         }
         Collections.sort(fresh, (a, b) -> {
             int fa = pinned.indexOf(a.pkg), fb = pinned.indexOf(b.pkg);
@@ -142,6 +179,24 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         while (docked < items.size() && pinned.contains(items.get(docked).pkg)) docked++;
         dockCount = Math.min(docked, maxDock);
         notifyDataSetChanged();
+    }
+
+    private Entry settingsEntry(PackageManager pm) {
+        Drawable icon = ctx.getDrawable(R.drawable.ic_settings);
+        String label = ctx.getString(R.string.settings);
+        try {
+            ApplicationInfo ai = pm.getApplicationInfo(SETTINGS_PKG, 0);
+            icon = pm.getApplicationIcon(ai);
+            CharSequence name = pm.getApplicationLabel(ai);
+            if (name != null && name.length() > 0) label = String.valueOf(name);
+        } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        int squareId = ctx.getResources().getIdentifier("dock_settings", "drawable", ctx.getPackageName());
+        Drawable square = squareId != 0 ? ctx.getDrawable(squareId) : null;
+        Intent open = new Intent(Settings.ACTION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return new Entry(label, new ComponentName(SETTINGS_PKG, SETTINGS_PKG + ".DockShortcut"),
+                square, icon, open);
     }
 
     // ---- dock editing ----------------------------------------------------------------------------
@@ -209,17 +264,23 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         h.card.setScaleX(1f);
         h.card.setScaleY(1f);
         h.card.setTranslationY(0f);
-        h.shadow.setVisibility(View.VISIBLE);
-        h.shadow.setScaleX(1f);
-        h.shadow.setScaleY(1f);
-        h.shadow.setTranslationY(0f);
+        h.shadow.setVisibility(View.GONE);
         h.label.setVisibility(View.GONE);
-        boolean art = e.square != null;
-        h.card.setBackground(art ? null : ctx.getDrawable(R.drawable.dock_tile_bg));
-        h.banner.setImageDrawable(e.square);
-        h.banner.setVisibility(art ? View.VISIBLE : View.GONE);
-        h.icon.setImageDrawable(art ? null : e.icon);
-        h.icon.setVisibility(art ? View.GONE : View.VISIBLE);
+        // Custom dock art is already full-bleed; system icons get a heavy crop past their padding.
+        Drawable art = e.square != null ? e.square : e.icon;
+        if (e.square != null) {
+            h.card.setBackground(null);
+        } else {
+            h.card.setBackground(ctx.getDrawable(R.drawable.dock_tile_bg));
+        }
+        h.banner.setImageDrawable(art);
+        h.banner.setScaleType(ImageView.ScaleType.FIT_XY);
+        float zoom = e.square != null ? 1f : 2.1f;
+        h.banner.setScaleX(zoom);
+        h.banner.setScaleY(zoom);
+        h.banner.setPadding(0, 0, 0, 0);
+        h.banner.setVisibility(View.VISIBLE);
+        h.icon.setVisibility(View.GONE);
         h.card.setOnClickListener(v -> launch(e));
         h.card.setOnLongClickListener(v -> {
             int pos = h.getBindingAdapterPosition();
@@ -229,12 +290,22 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     }
 
     private void launch(Entry e) {
-        Intent i = new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                .setComponent(e.component)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         try {
-            ctx.startActivity(i);
+            if (e.launchIntent != null) {
+                ctx.startActivity(e.launchIntent);
+                return;
+            }
+            Intent i = new Intent(Intent.ACTION_MAIN)
+                    .setComponent(e.component)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            i.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+            try {
+                ctx.startActivity(i);
+            } catch (Exception leanbackMiss) {
+                i.removeCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+                i.addCategory(Intent.CATEGORY_LAUNCHER);
+                ctx.startActivity(i);
+            }
         } catch (Exception ex) {
             Toast.makeText(ctx, "Can't open " + e.label, Toast.LENGTH_SHORT).show();
         }

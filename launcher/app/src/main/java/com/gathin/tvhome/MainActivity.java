@@ -53,7 +53,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
+ * Material-inspired Fire TV home: tonal surface, app-tinted blob, pinned dock, spring glass highlight.
  */
 public class MainActivity extends Activity implements AppAdapter.TileListener {
 
@@ -67,19 +67,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private FrameLayout root;
     private GlassView glass;
     private View ambient;
+    private View colorBlob;
     private TextView heroName;
+    private TextView focusTitle;
     private View dockDot;
-    // macOS dock magnification: focused icon and its neighbours grow from their bottom edge and lift.
-    private static final float DOCK_MAGNIFY = 1.30f;
-    private static final float DOCK_NEIGHBOUR = 1.10f;
-    private static final float DOCK_LIFT_DP = 10f;
-    private static final float DOCK_NEIGHBOUR_LIFT_DP = 4f;
+    // Dock magnification: focused tile and neighbours grow from their bottom edge and lift.
+    private static final float DOCK_MAGNIFY = 1.18f;
+    private static final float DOCK_NEIGHBOUR = 1.06f;
+    private static final float DOCK_LIFT_DP = 8f;
+    private static final float DOCK_NEIGHBOUR_LIFT_DP = 3f;
     private GradientDrawable ambientGlow;
+    private GradientDrawable blobDrawable;
     private int ambientColor;
     private boolean heroShown;
     private TextView greeting;
     private ImageView bgPhoto;
-    private int bgRes;
     private TextView btnWifi;
     private SpringAnimation springX, springY;
     private float glassTargetX, glassTargetY;
@@ -106,7 +108,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         @Override
         public void run() {
             updateGreeting();
-            updateBackground();
             updateWifiLabel();
             handler.postDelayed(this, MINUTE_MS);
         }
@@ -123,17 +124,25 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         root = findViewById(R.id.root);
         glass = findViewById(R.id.glass);
         ambient = findViewById(R.id.ambient);
+        colorBlob = findViewById(R.id.colorBlob);
         heroName = findViewById(R.id.heroName);
+        focusTitle = findViewById(R.id.focusTitle);
         dockDot = findViewById(R.id.dockDot);
         ambientGlow = new GradientDrawable();
         ambientGlow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        ambientGlow.setGradientCenter(0.32f, 0.42f);
+        ambientGlow.setGradientCenter(0.28f, 0.55f);
         ambient.setBackground(ambientGlow);
         ambient.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                ambientGlow.setGradientRadius((r - l) * 0.62f));
+                ambientGlow.setGradientRadius((r - l) * 0.72f));
+        blobDrawable = new GradientDrawable();
+        blobDrawable.setShape(GradientDrawable.OVAL);
+        colorBlob.setBackground(blobDrawable);
+        setAmbient(0xFF6750A4);
+        colorBlob.setAlpha(0.28f);
         greeting = findViewById(R.id.greeting);
         bgPhoto = findViewById(R.id.bgPhoto);
         btnWifi = findViewById(R.id.btnWifi);
+        loadBingBackground();
 
         grid = findViewById(R.id.grid);
         // One span unit per cell of any dock size 1..COLUMNS: the dock row splits evenly, grid rows are COLUMNS wide.
@@ -155,10 +164,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.addItemDecoration(new DockDecoration(adapter, COLUMNS, density));
         grid.setAdapter(adapter);
 
-        // tvOS layout: push the dock row to the bottom of the screen; the grid hides below until you press Down.
+        // Push the dock to the bottom; the rest of the apps sit below until Down is pressed.
         grid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             int h = b - t;
-            int dockRow = (int) ((101 + 6 + 12) * density);   // item height plus DockDecoration offsets
+            int dockRow = (int) ((148 + 8 + 16) * density);   // full-bleed tiles + decoration
             int want = Math.max(0, h - dockRow + (int) (8 * density));
             if (grid.getPaddingTop() != want) {
                 grid.setPadding(grid.getPaddingLeft(), want, grid.getPaddingRight(), grid.getPaddingBottom());
@@ -209,7 +218,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnWifi.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
 
-        // Hide the glass when focus leaves the tiles.
+        // Hide glass / hero when focus leaves the tiles.
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
             boolean onTile = newF != null && newF.getId() == R.id.card;
             if (!onTile) {
@@ -226,13 +235,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         glass.setAlpha(0f);
         heroShown = false;
         heroName.setAlpha(0f);
+        focusTitle.setAlpha(0f);
         dockDot.setAlpha(0f);
-        ambient.setAlpha(0f);
+        ambient.setAlpha(0.2f);
         adapter.reload();
         grid.scheduleLayoutAnimation();
         updateGreeting();
-        updateBackground();
         updateWifiLabel();
+        loadBingBackground();
         handler.postDelayed(minuteTick, MINUTE_MS);
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         if (cm != null) cm.registerDefaultNetworkCallback(networkCallback);
@@ -276,6 +286,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         float h = card.getHeight() * AppAdapter.FOCUS_SCALE + 2 * pad;
         float x = r.exactCenterX() - w / 2f;
         float y = r.exactCenterY() - h / 2f;
+        int color = adapter.ambientColorAt(position);
+        glass.setTint(color);
+        setAmbient(color);
+        ambient.animate().alpha(0.28f).setDuration(280).start();
+        showFocusTitle(adapter.labelAt(position));
 
         ViewGroup.LayoutParams lp = glass.getLayoutParams();
         if (lp.width != (int) w || lp.height != (int) h) {
@@ -298,7 +313,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             springY.animateToFinalPosition(y);
         }
         View item = (View) card.getParent();
-        hideHero();
+        heroName.animate().alpha(0f).setDuration(120).start();
+        dockDot.animate().alpha(0f).setDuration(120).start();
+        heroShown = false;
+        magnifyDock(-1);
         // Scroll just enough so the whole glass (not only the tile) is visible.
         Rect want = new Rect(0, -(int) pad * 2, item.getWidth(), item.getHeight() + (int) pad);
         grid.requestChildRectangleOnScreen(item, want, false);
@@ -334,53 +352,76 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             card.setPivotY(card.getHeight());
             card.animate().scaleX(s).scaleY(s).translationY(-lift * density)
                     .setDuration(220).setInterpolator(new DecelerateInterpolator()).start();
-            // The shadow grows from the same point (the icon's bottom centre) so it stays under the icon.
-            View shadow = item.findViewById(R.id.shadow);
-            shadow.setPivotX(shadow.getWidth() / 2f);
-            shadow.setPivotY(card.getBottom() - shadow.getTop());
-            shadow.animate().scaleX(s).scaleY(s).translationY(-lift * density)
-                    .setDuration(220).setInterpolator(new DecelerateInterpolator()).start();
+            }
+    }
+
+    // Capsule above the tile, large title, and a Material blob tinted to the app.
+    private void showHero(int position, Rect card) {
+        String label = adapter.labelAt(position);
+        dockDot.setX(card.exactCenterX() - dockDot.getWidth() / 2f);
+        dockDot.setY(card.bottom + 6 * density);
+        dockDot.animate().alpha(1f).setDuration(160).start();
+        showFocusTitle(label);
+        int color = adapter.ambientColorAt(position);
+        glass.setTint(color);
+        if (!heroShown) {
+            setAmbient(color);
+            ambient.animate().alpha(0.35f).setDuration(420).start();
+            heroShown = true;
+        } else if (color != ambientColor) {
+            ambient.animate().alpha(0.15f).setDuration(160).withEndAction(() -> {
+                setAmbient(color);
+                ambient.animate().alpha(0.35f).setDuration(360).start();
+            }).start();
         }
     }
 
-    // Name tooltip above the magnified icon, dot below it, and a soft glow in the app's colour.
-    private void showHero(int position, Rect card) {
-        heroName.setText(adapter.labelAt(position));
-        heroName.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        float iconTop = card.bottom - card.height() * DOCK_MAGNIFY - DOCK_LIFT_DP * density;
-        heroName.setX(card.exactCenterX() - heroName.getMeasuredWidth() / 2f);
-        heroName.setY(iconTop - 8 * density - heroName.getMeasuredHeight());
-        dockDot.setX(card.exactCenterX() - dockDot.getWidth() / 2f);
-        dockDot.setY(card.bottom + 3 * density);
-        heroName.animate().alpha(1f).setDuration(160).start();
-        dockDot.animate().alpha(1f).setDuration(160).start();
-        int color = adapter.ambientColorAt(position);
-        if (!heroShown) {
-            setAmbient(color);
-            ambient.animate().alpha(1f).setDuration(600).start();
-            heroShown = true;
-        } else if (color != ambientColor) {
-            ambient.animate().alpha(0.35f).setDuration(200).withEndAction(() -> {
-                setAmbient(color);
-                ambient.animate().alpha(1f).setDuration(500).start();
-            }).start();
-        }
+    private void showFocusTitle(String label) {
+        if (focusTitle == null) return;
+        focusTitle.setText(label);
+        focusTitle.animate().alpha(1f).setDuration(220).start();
     }
 
     private void setAmbient(int color) {
         ambientColor = color;
         int c = color & 0x00FFFFFF;
-        // Kept faint so the photo keeps its own colours (was 36% / 15%).
-        ambientGlow.setColors(new int[]{0x26000000 | c, 0x0D000000 | c, 0x00000000 | c});
+        ambientGlow.setColors(new int[]{0x66000000 | c, 0x33000000 | c, 0x00000000});
+        if (blobDrawable != null) {
+            int mid = 0xFF000000 | c;
+            float[] hsv = new float[3];
+            Color.colorToHSV(mid, hsv);
+            hsv[1] = Math.min(1f, hsv[1] * 0.85f);
+            hsv[2] = Math.max(0.45f, Math.min(0.85f, hsv[2]));
+            int bright = Color.HSVToColor(hsv);
+            hsv[2] *= 0.55f;
+            int deep = Color.HSVToColor(hsv);
+            blobDrawable.setColors(new int[]{bright, deep});
+            blobDrawable.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+            blobDrawable.setGradientCenter(0.45f, 0.4f);
+            blobDrawable.setGradientRadius(colorBlob.getWidth() > 0
+                    ? colorBlob.getWidth() * 0.55f
+                    : 400f * density);
+        }
     }
 
     private void hideHero() {
-        if (!heroShown) return;
+        if (!heroShown && (focusTitle == null || focusTitle.getAlpha() < 0.05f)) return;
         heroShown = false;
-        heroName.animate().alpha(0f).setDuration(160).start();
         dockDot.animate().alpha(0f).setDuration(160).start();
-        ambient.animate().alpha(0f).setDuration(300).start();
+        if (focusTitle != null) focusTitle.animate().alpha(0f).setDuration(200).start();
+        ambient.animate().alpha(0.08f).setDuration(280).start();
         magnifyDock(-1);
+    }
+
+    private void loadBingBackground() {
+        if (bgPhoto == null) return;
+        BingWallpaper.load(this, file -> {
+            try {
+                bgPhoto.setImageURI(Uri.fromFile(file));
+                bgPhoto.animate().alpha(1f).setDuration(500).start();
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     private void hideGlass() {
@@ -552,11 +593,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     // ---- top bar ---------------------------------------------------------------------------------
 
-    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS and BACKGROUNDS.
+    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5.
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
-    private static final int[] BACKGROUNDS = {
-            R.drawable.bg_morning, R.drawable.bg_afternoon, R.drawable.bg_evening, R.drawable.bg_night};
 
     private static int dayPart() {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
@@ -571,22 +610,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         String text = getString(GREETINGS[dayPart()]);
         String name = getString(R.string.user_name).trim();
         greeting.setText(name.isEmpty() ? text : text + ", " + name);
-    }
-
-    private void updateBackground() {
-        int res = BACKGROUNDS[dayPart()];
-        if (res == bgRes) return;
-        boolean first = bgRes == 0;
-        bgRes = res;
-        if (first) {
-            bgPhoto.setImageResource(res);
-            return;
-        }
-        // Fade through black so the swap isn't a jump cut.
-        bgPhoto.animate().alpha(0f).setDuration(600).withEndAction(() -> {
-            bgPhoto.setImageResource(res);
-            bgPhoto.animate().alpha(1f).setDuration(900);
-        });
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */
