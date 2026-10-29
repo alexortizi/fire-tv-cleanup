@@ -28,8 +28,7 @@ if [ "$MAKER" = "Amazon" ]; then
     "settings put secure screensaver_components com.gathin.tvhome/com.gathin.tvhome.PhotoDream" \
     "am start -n com.gathin.tvhome/.MainActivity" \
     | "$PY" -I ../tools/tv.py --batch
-  echo "Installed on Fire TV. Home opens the launcher. To go back to Amazon's home screen, press Menu on"
-  echo "the launcher's Settings button and choose Use Amazon Home Screen."
+  echo "Installed on Fire TV. Home opens the launcher. Gear menu: Show Hidden / Switch home / System Settings."
 else
   printf '%s\n' \
     "pm install -r /data/local/tmp/tvhome.apk" \

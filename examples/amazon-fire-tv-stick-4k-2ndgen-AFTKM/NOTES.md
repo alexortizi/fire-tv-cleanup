@@ -10,7 +10,16 @@ of Amazon Home — that is normal, not a bug. Without root you cannot remove tha
 
 The redirect persists across reboots while the accessibility setting stays enabled. If Home
 stops redirecting after an update, re-run `launcher/build-and-install.sh` (or grant
-`WRITE_SECURE_SETTINGS` and re-enable the service).
+`WRITE_SECURE_SETTINGS` and re-enable the service):
+
+```bash
+settings put secure enabled_accessibility_services com.gathin.tvhome/com.gathin.tvhome.HomeRedirectService
+settings put secure accessibility_enabled 1
+```
+
+Amazon Settings is often `MainSettingsActivity` inside `com.amazon.tv.launcher` (not a separate
+settings package). Leaving Settings onto Amazon Home re-triggers the redirect. If Amazon Home
+sticks, use the on-screen **← Home** overlay, press **Menu**, or open **Home** from Your Apps.
 
 ## What to keep
 

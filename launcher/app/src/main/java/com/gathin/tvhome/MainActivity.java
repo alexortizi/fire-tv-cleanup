@@ -127,6 +127,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         colorBlob = findViewById(R.id.colorBlob);
         heroName = findViewById(R.id.heroName);
         focusTitle = findViewById(R.id.focusTitle);
+        // App name sits at ~1/3 screen height (left), between clock and dock.
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int h = b - t;
+            if (h <= 0 || focusTitle == null) return;
+            float y = h / 3f - focusTitle.getHeight() / 2f;
+            if (Math.abs(focusTitle.getTranslationY() - y) > 1f) focusTitle.setTranslationY(y);
+        });
         dockDot = findViewById(R.id.dockDot);
         ambientGlow = new GradientDrawable();
         ambientGlow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
@@ -194,16 +201,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         View btnInputs = findViewById(R.id.btnInputs);
         View btnSettings = findViewById(R.id.btnSettings);
-        btnInputs.setOnClickListener(v -> showInputs());
+        // HDMI/AV Inputs — real TVs only. Fire Stick reports a fake ARC "passthrough"; hide on Amazon.
+        if (!isAmazonDevice() && hasPassthroughInputs()) {
+            btnInputs.setOnClickListener(v -> showInputs());
+        } else {
+            btnInputs.setVisibility(View.GONE);
+        }
         btnWifi.setOnClickListener(v -> open(new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        btnSettings.setOnClickListener(v -> open(new Intent(Settings.ACTION_SETTINGS)));
+        // Gear = launcher menu (hidden apps / home switch / system Settings). Long-press = Amazon Settings.
+        btnSettings.setOnClickListener(v -> showHomeScreenMenu(v));
         btnSettings.setOnLongClickListener(v -> {
-            showHomeScreenMenu(v);
+            open(new Intent(Settings.ACTION_SETTINGS));
             return true;
         });
 
         // Keep focus on the top bar at its ends and at the top: Android's focus finder would otherwise
         // jump to a tile far below when there is nothing in that direction.
+        View leftmost = btnInputs.getVisibility() == View.VISIBLE ? btnInputs : btnWifi;
         View.OnKeyListener pillKeys = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
@@ -211,7 +225,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 showHomeScreenMenu(v);
                 return true;
             }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && v.getId() == R.id.btnInputs) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && v.getId() == leftmost.getId()) return true;
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == R.id.btnSettings;
         };
         btnInputs.setOnKeyListener(pillKeys);
@@ -550,24 +564,35 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         rows.getChildAt(0).requestFocus();
     }
 
-    // Escape hatch on the TV itself: Menu (or hold OK) on the Settings button switches the Home redirect.
+    /**
+     * Gear menu: hidden apps first, then home-switch escape hatch, then Amazon system Settings.
+     * (Short-press used to open Settings and looked duplicated next to the dock Settings tile.)
+     */
     private void showHomeScreenMenu(View anchor) {
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
-        int width = (int) (290 * density);
+        int width = (int) (300 * density);
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(0);
         popup.setElevation(0f);
-        boolean on = HomeRedirectService.isEnabled(this);
-        addInputRow(rows, popup, R.drawable.ic_settings, getString(on ? R.string.use_amazon_home : R.string.use_this_home), -1, () -> {
-            if (!HomeRedirectService.setEnabled(this, !on)) {
-                Toast.makeText(this, R.string.redirect_needs_permission, Toast.LENGTH_LONG).show();
-            }
-        });
         addInputRow(rows, popup, R.drawable.ic_hide, getString(R.string.show_hidden_apps), -1, () ->
                 showHiddenAppsMenu(anchor));
+        boolean on = HomeRedirectService.isRedirecting(this);
+        addInputRow(rows, popup, R.drawable.ic_unpin, getString(on ? R.string.use_amazon_home : R.string.use_this_home), -1, () -> {
+            if (!HomeRedirectService.setRedirecting(this, !on)) {
+                Toast.makeText(this, R.string.redirect_needs_permission, Toast.LENGTH_LONG).show();
+            } else if (on) {
+                Toast.makeText(this, R.string.amazon_home_hint, Toast.LENGTH_LONG).show();
+                // Pause takes effect; leave them on Amazon Home if they navigate there next.
+            } else {
+                startActivity(new Intent(this, MainActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
+            }
+        });
+        addInputRow(rows, popup, R.drawable.ic_settings, getString(R.string.open_system_settings), -1, () ->
+                open(new Intent(Settings.ACTION_SETTINGS)));
         popup.showAsDropDown(anchor, anchor.getWidth() - width, (int) (10 * density), Gravity.START);
         rows.getChildAt(0).requestFocus();
     }
@@ -658,9 +683,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void updateGreeting() {
+        // Fixed house greeting (config); optional tvhome.userName only if greetings are generic.
         String text = getString(GREETINGS[dayPart()]);
         String name = getString(R.string.user_name).trim();
-        greeting.setText(name.isEmpty() ? text : text + ", " + name);
+        if (!name.isEmpty() && !text.toLowerCase().contains(name.toLowerCase())) {
+            greeting.setText(text + ", " + name);
+        } else {
+            greeting.setText(text);
+        }
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */
@@ -715,6 +745,20 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, "Not available on this TV", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private static boolean isAmazonDevice() {
+        return "Amazon".equalsIgnoreCase(android.os.Build.MANUFACTURER);
+    }
+
+    /** True when the device exposes HDMI/AV passthrough (real TVs). */
+    private boolean hasPassthroughInputs() {
+        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
+        if (tim == null) return false;
+        for (TvInputInfo info : tim.getTvInputList()) {
+            if (info.isPassthroughInput() && info.getType() == TvInputInfo.TYPE_HDMI) return true;
+        }
+        return false;
     }
 
     /** Dropdown menu under the Inputs pill: HDMI ports (with connection state), AV and Live TV. */

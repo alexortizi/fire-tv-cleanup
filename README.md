@@ -46,13 +46,17 @@ A small native Android TV home screen (`com.gathin.tvhome`), built for sticks wi
 - Material-inspired dock: full-bleed tiles, quiet focus label, minimal chrome so the photo stays
   the hero.
 - Pin, unpin and reorder dock apps on the TV: hold OK or press Menu on an app.
-- Round buttons top right: **Inputs**, **Wi-Fi** and **Settings**. Greeting, clock and date top
-  left ([Open Sans](https://fonts.google.com/specimen/Open+Sans)).
+- Round buttons top right: **Wi-Fi** and **Settings** (Inputs only on real TVs with HDMI). Greeting,
+  clock and date top left ([Open Sans](https://fonts.google.com/specimen/Open+Sans)); focused app
+  name at ~⅓ height on the left.
 - A screensaver of local photos with a slow zoom and a clock.
 
 Configure it in [`launcher/app/src/main/res/values/config.xml`](launcher/app/src/main/res/values/config.xml):
 the starting dock, hidden apps, Live TV package and columns. To put your name in the greeting, add
-`tvhome.userName=Alex` to `launcher/local.properties`. Brand dock icons (YouTube, Netflix, Twitch, Kick, VLC, DAZN, etc.) are not committed (trademarks).
+`tvhome.userName=Alex` to `launcher/local.properties`. To replace the time-of-day greeting entirely
+(e.g. a fixed welcome line), edit the `good_*` strings in
+[`launcher/app/src/main/res/values/strings.xml`](launcher/app/src/main/res/values/strings.xml).
+Brand dock icons (YouTube, Netflix, Twitch, Kick, VLC, DAZN, etc.) are not committed (trademarks).
 Generate them on any machine with [`tools/make_dock_icons.py`](tools/make_dock_icons.py) before
 building — same script works for every TV. Generic tiles (Settings gear, browser globe) are in the
 repo. On the TV you can pin/unpin, reorder dock + grid, and hide/show apps (Menu / hold OK; gear →
@@ -119,10 +123,12 @@ How it differs from Android TV:
   hosts Settings. Disabling it locks you out of Settings. The launcher's `HomeRedirectService`
   opens the launcher whenever Amazon's home screen comes up, so Amazon's screen shows for a moment
   before yours. That flash is expected.
-- **Settings keeps working.** Amazon's home screen also flashes up on the way into Settings, right
-  after a window from Amazon's settings app. The redirect leaves that flash alone.
-- **To turn the redirect off on the TV,** press Menu on the launcher's Settings button and choose
-  **Use Amazon Home Screen**.
+- **Settings keeps working.** Fire OS often hosts Settings inside `com.amazon.tv.launcher`. The
+  redirect waits briefly so Settings can open, then brings you back when Amazon Home returns.
+- **If you land on Amazon Home,** a **← Home** button appears (or press **Menu**). The app is also
+  listed under Your Apps as **Home** (`LEANBACK_LAUNCHER`).
+- **To turn the redirect off on the TV,** open the gear menu and choose **Switch to Amazon Home**.
+  Menu / ← Home still brings you back.
 - **ADB turns off when the TV restarts.** Turn **ADB debugging** back on in Developer Options
   before you connect again.
 - **Some packages are protected.** Fire OS refuses to disable packages listed as protected in the
